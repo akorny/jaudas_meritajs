@@ -23,6 +23,8 @@
 #define ADC_WIDTH               ADC_WIDTH_BIT_11
 #define ADC_VOLTAGE             ADC1_CHANNEL_6
 #define ADC_CURRENT             ADC1_CHANNEL_4
+#define VOLTAGE_ZERO            847
+#define CURRENT_ZERO            847
 
 #define DEFAULT_AP_SSID         "POWER PETER"
 #define MQTT_ID                 "aabbccddeeff"
@@ -35,6 +37,8 @@ volatile double lastApparentPower = 0;              // Pēdējā nomērīta kop�
 volatile double lastReactivePower = 0;              // Pēdējā nomērīta reaktīvas jaudas vērtība (VA)
 volatile float lastPowerFactor = 0;                 // Pēdējā nomērīta jaudas koeficienta vērtība
 volatile double lastEnergy = 0;                     // Paterētā enerģija (kWh)
+volatile double lastVoltageRMS = 0;                 // Pēdējā nomērīta sprieguma RMS vērtība (V)
+volatile double lastCurrentRMS = 0;                 // Pēdējā nomērīta stravas stipruma RMS vērtība (A)
 volatile bool measurementsProcessed = false; 
 
 char wifiSSID[51] = "";
@@ -57,6 +61,12 @@ PubSubClient mqttClient(wifiClient);
 WebServer server(80);
 hw_timer_t* timer = NULL; 
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+
+
+IRAM_ATTR double roundDouble(double number, uint16_t ndigits) {
+  int8_t coeff = number >= 0;
+  return ((int) (number + 0.5 * coeff) / (10 * ndigits)) / (10.0 * ndigits);
+}
 
 /*
   Pārbauda, vai spiedpoga tagad ir nospiesta.
@@ -192,10 +202,12 @@ void sendNewMQTTMessage() {
 
   JsonDocument doc; // Izveido jauno JSON objektu
   doc["relay"] = relayState;
-  doc["real_power"] = lastRealPower;
-  doc["apparent_power"] = lastApparentPower;
-  doc["reactive_power"] = lastReactivePower;
-  doc["power_factor"] = lastPowerFactor;
+  doc["real_power"] = roundDouble(lastRealPower, 1);
+  doc["apparent_power"] = roundDouble(lastApparentPower, 1);
+  doc["reactive_power"] = roundDouble(lastPowerFactor, 1);
+  doc["power_factor"] = roundDouble(lastPowerFactor, 2);
+  doc["voltage"] = (int) lastVoltageRMS;
+  doc["current"] = roundDouble(lastCurrentRMS, 1);
   doc["energy"] = lastEnergy;
 
   char message[201]; // Izveido MQTT ziņas buferi
@@ -234,7 +246,7 @@ void handleMQTTMessage(char* topic, byte* payload, unsigned int length) {
 */
 IRAM_ATTR int getVoltage() {
   uint16_t adcMeasurement = adc1_get_raw(ADC_VOLTAGE);
-  int16_t adcValue = adcMeasurement - 847;
+  int16_t adcValue = adcMeasurement - VOLTAGE_ZERO;
   return adcValue;
 }
 
@@ -243,7 +255,7 @@ IRAM_ATTR int getVoltage() {
 */
 IRAM_ATTR int getCurrent() {
   uint16_t adcMeasurement = adc1_get_raw(ADC_CURRENT);
-  int16_t adcValue = adcMeasurement - 847;
+  int16_t adcValue = adcMeasurement - CURRENT_ZERO;
   return adcValue;
 }
 
@@ -265,9 +277,9 @@ IRAM_ATTR bool calculatePowerEnergy(int voltage, int current) {
   if (counter >= measurementSampleAmount) {
     lastRealPower = double(power / measurementSampleAmount) * CURRENT_COEFFICIENT * VOLTAGE_COEFFICIENT;
     // sqrt() - aprēķina kvadratsakni no skaitļa
-    double voltageRMS = sqrt(voltageSquared / measurementSampleAmount) * VOLTAGE_COEFFICIENT;
-    double currentRMS = sqrt(currentSquared / measurementSampleAmount) * CURRENT_COEFFICIENT;
-    lastApparentPower = voltageRMS * currentRMS;
+    lastVoltageRMS = sqrt(voltageSquared / measurementSampleAmount) * VOLTAGE_COEFFICIENT;
+    lastCurrentRMS = sqrt(currentSquared / measurementSampleAmount) * CURRENT_COEFFICIENT;
+    lastApparentPower = lastVoltageRMS * lastCurrentRMS;
     lastReactivePower = sqrt(lastApparentPower * lastApparentPower - lastRealPower * lastRealPower);
     lastPowerFactor = lastRealPower / lastApparentPower;
     lastEnergy += lastRealPower * POWER_PERIOD / 3.6e6;
@@ -357,10 +369,12 @@ void httpHandleIndex() {
 void httpHandleApiData() {
   JsonDocument doc;
   doc["relay"] = relayState;
-  doc["real_power"] = lastRealPower;
-  doc["apparent_power"] = lastApparentPower;
-  doc["reactive_power"] = lastReactivePower;
-  doc["power_factor"] = lastPowerFactor;
+  doc["real_power"] = roundDouble(lastRealPower, 1);
+  doc["apparent_power"] = roundDouble(lastApparentPower, 1);
+  doc["reactive_power"] = roundDouble(lastPowerFactor, 1);
+  doc["power_factor"] = roundDouble(lastPowerFactor, 2);
+  doc["voltage"] = (int) lastVoltageRMS;
+  doc["current"] = roundDouble(lastCurrentRMS, 1);
   doc["energy"] = lastEnergy;
 
   char message[201];

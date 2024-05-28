@@ -26,6 +26,13 @@
                             Reload data
                         </button>
                     </p>
+                    <h4>Voltage & current</h4>
+                    <p>
+                        Voltage (RMS): <b id="voltage">xxx</b> V
+                    </p>
+                    <p>
+                        Current (RMS): <b id="current">xxx</b> A
+                    </p>
                     <h4>Power</h4>
                     <p>
                         Real power: <b id="real-power">xxx</b> W
@@ -64,6 +71,8 @@
             function updateData() {
                 fetch("/api/data").then(resp => {
                     resp.json().then(data => {
+                        document.getElementById("voltage").innerHTML = data["voltage"]
+                        document.getElementById("current").innerHTML = data["current"]
                         document.getElementById("real-power").innerHTML = data["real_power"]
                         document.getElementById("apparent-power").innerHTML = data["apparent_power"]
                         document.getElementById("reactive-power").innerHTML = data["reactive_power"]
