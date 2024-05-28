@@ -11,13 +11,13 @@
 
 #define BUTTON_PIN              19
 #define LED_PIN                 LED_BUILTIN
-#define RELAY_PIN               18
+#define RELAY_PIN               27
 
 #define POWER_PERIOD            0.25         // Laika sprīdis (s), kurā tiek mērīta vidēja jauda
 #define MQTT_MESSAGE_PERIOD     30           // Laika intervāls, starp kuriem ir izsūtītas MQTT ziņas
 #define SAMPLING_PERIOD         200          // Laika sprīdis (us) starp diviem jaudas mērījumiem
-#define CURRENT_COEFFICIENT     1            // Koeficients, kuru izmanto, lai pārveidotu ADC strāvas vērtību ampēros
-#define VOLTAGE_COEFFICIENT     0.39319885138      // Koeficients, kuru izmanto, lai pārveidotu ADC sprieguma vērtību voltos
+#define CURRENT_COEFFICIENT     1             // Koeficients, kuru izmanto, lai pārveidotu ADC strāvas vērtību ampēros
+#define VOLTAGE_COEFFICIENT     1        // Koeficients, kuru izmanto, lai pārveidotu ADC sprieguma vērtību voltos
 #define SETTINGS_LED_PERIOD     500
 #define BUTTON_CLICK_TIMEOUT    500
 #define ADC_WIDTH               ADC_WIDTH_BIT_11
@@ -253,24 +253,29 @@ IRAM_ATTR int getCurrent() {
 */
 IRAM_ATTR bool calculatePowerEnergy(int voltage, int current) {
   static uint16_t counter = 0;
-  static int32_t power = 0;
-  static uint32_t powerSquared = 0;
+  static int64_t power = 0;
+  static uint64_t voltageSquared = 0;
+  static uint64_t currentSquared = 0;
 
-  int16_t currentPower = voltage * current;
+  int32_t currentPower = voltage * current;
   power += currentPower;
-  powerSquared += currentPower * currentPower;
+  voltageSquared += voltage * voltage;
+  currentSquared += current * current;
   
   if (counter >= measurementSampleAmount) {
-    lastRealPower = float(power / measurementSampleAmount) * CURRENT_COEFFICIENT * VOLTAGE_COEFFICIENT;
+    lastRealPower = double(power / measurementSampleAmount) * CURRENT_COEFFICIENT * VOLTAGE_COEFFICIENT;
     // sqrt() - aprēķina kvadratsakni no skaitļa
-    lastApparentPower = sqrt(powerSquared / measurementSampleAmount) * CURRENT_COEFFICIENT * VOLTAGE_COEFFICIENT;
+    double voltageRMS = sqrt(voltageSquared / measurementSampleAmount) * VOLTAGE_COEFFICIENT;
+    double currentRMS = sqrt(currentSquared / measurementSampleAmount) * CURRENT_COEFFICIENT;
+    lastApparentPower = voltageRMS * currentRMS;
     lastReactivePower = sqrt(lastApparentPower * lastApparentPower - lastRealPower * lastRealPower);
     lastPowerFactor = lastRealPower / lastApparentPower;
     lastEnergy += lastRealPower * POWER_PERIOD / 3.6e6;
 
     counter = 0;
     power = 0;
-    powerSquared = 0;
+    voltageSquared = 0;
+    currentSquared = 0;
 
     return true;
   }
@@ -469,7 +474,7 @@ void httpHandleRelayOff() {
 void setup() {
   Serial.println("Starting device initialisation..."); // Izvada paziņojumu komunikacijā ar datoru
   LittleFS.begin(); // Uzsāc LittleFS failu sistēmas darbību
-  Serial.begin(9600); // Uzsāc komunikāciju caur Serial portu atkļūdošanai
+  Serial.begin(230400); // Uzsāc komunikāciju caur Serial portu atkļūdošanai
   EEPROM.begin(512); // Iniciē EEPROM atmiņu 512 baitu apjomā
 
   readDataFromEEPROM();
